@@ -1,25 +1,72 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"log"
+	"os"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
 
-const fileTransferProtocol = "/file-transfer/1.0.0"
+const helloProtocol = "/hello/1.0.0"
+
+func readHelloProtocol(s network.Stream) error {
+	log.Printf("New incoming connection from peer %s\n", s.Conn().RemotePeer())
+	gzr, err := gzip.NewReader(s)
+	if err != nil {
+		fmt.Println("Error creating gzip reader:", err)
+		return err
+	}
+	defer gzr.Close()
+
+	decompressedData, err := io.ReadAll(gzr)
+	if err != nil {
+		fmt.Println("Error reading from gzip reader:", err)
+		return err
+	}
+
+	fmt.Println(string(decompressedData))
+
+	err = os.WriteFile("moro.txt", decompressedData, 0666)
+	if err != nil {
+		fmt.Println("Error reading from gzip reader:", err)
+		return err
+	}
+
+	//connection := s.Conn()
+
+	//log.Printf("Message from %s: %s", connection.RemotePeer().String(), message)
+	return nil
+}
 
 func main() {
+	sp := flag.String("sp", "3001", "Source port for local host")
 	peerAddr := flag.String("peer-address", "", "peer address")
-	h, err := startPeer() // start listening on port 3001
+	flag.Parse()
+
+	h, err := startPeer(*sp) // start listening on port 3001
 	if err != nil {
 		return
 	}
+
+	h.SetStreamHandler(helloProtocol, func(s network.Stream) {
+		log.Printf(("/hello/1.00 stream created"))
+		err := readHelloProtocol(s)
+		if err != nil {
+			s.Reset()
+		} else {
+			s.Close()
+		}
+	})
 
 	defer h.Close()
 
@@ -31,7 +78,7 @@ func main() {
 
 }
 
-func startPeer() (host.Host, error) {
+func startPeer(sourcePort string) (host.Host, error) {
 
 	// Set your own keypair
 	priv, _, err := crypto.GenerateKeyPair(
@@ -47,7 +94,7 @@ func startPeer() (host.Host, error) {
 		libp2p.Identity(priv),
 		// Multiple listen addresses
 		libp2p.ListenAddrStrings(
-			"/ip4/0.0.0.0/tcp/3001", // regular tcp connections
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", sourcePort), // regular tcp connections
 		),
 	)
 
@@ -58,7 +105,7 @@ func startPeer() (host.Host, error) {
 }
 
 // setup connection to peer
-func connectPeer(h host.Host, peerAddr string) error {
+func connectPeer(h host.Host, peerAddr string) {
 	peerMA, err := multiaddr.NewMultiaddr(peerAddr)
 
 	if err != nil {
@@ -69,10 +116,28 @@ func connectPeer(h host.Host, peerAddr string) error {
 		panic(err)
 	}
 
+	fmt.Println(peerAddrInfo)
+
 	// Connect to the node at the given address.
 	if err := h.Connect(context.Background(), *peerAddrInfo); err != nil {
 		panic(err)
 	}
 	fmt.Println("Connected to", peerAddrInfo.String())
-	return nil
+	s, err := h.NewStream(context.Background(), peerAddrInfo.ID, "/hello/1.0.0")
+	if err != nil {
+		panic(err)
+	}
+
+	f, _ := os.Open("./test.txt")
+	content, _ := io.ReadAll(f)
+	gzw := gzip.NewWriter(s)
+
+	_, err = gzw.Write(content)
+	if err != nil {
+		fmt.Println("Error writing to gzip writer:", err)
+		return
+	}
+	gzw.Close()
+	s.Close()
+	select {}
 }

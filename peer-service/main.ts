@@ -19,8 +19,8 @@ app.post("/register", [ body().custom(validateFields) ] , async (req: Request, r
       return res.status(400).json({ errors: errors.array() });
     }
     try {
-        await registerPeer(req.body);
-        res.status(200).send("Peer register ok")
+        const msg = await registerPeer(req.body);
+        res.status(200).send(msg)
     } catch (err) {
         res.status(400).send("Error registering peer")
     }

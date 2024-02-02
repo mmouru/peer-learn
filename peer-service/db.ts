@@ -5,13 +5,14 @@ interface RegisterBody {
     ip: string,
     port: string,
     peerId: string,
+    hasCuda: boolean;
 }
 
 const pool = mysql.createPool({
-    socketPath: "",
-    user: "",
-    password: "",
-    database: ""
+    socketPath: process.env.SOCKETPATH,
+    user: process.env.DBUSER,
+    password: process.env.DBPASS,
+    database: process.env.DATABASE
 });
 
 // get all peers info
@@ -46,7 +47,7 @@ export const registerPeer = async (body: RegisterBody) => {
     //console.log(hostCheckResults)
     if (hostCheckResults[0]) {
         console.log("update existing information for found IP address");
-        const updateStateQuery = `UPDATE Peers SET port = "${peer.port}", peer_id = "${peer.peerId}", is_active=1, last_online = "${formattedDate}"
+        const updateStateQuery = `UPDATE Peers SET port = "${peer.port}", peer_id = "${peer.peerId}", has_cuda=${peer.hasCuda}, is_active=1, last_online = "${formattedDate}"
                                     WHERE ip = "${peer.ip}";`;
         
         try {
@@ -59,7 +60,7 @@ export const registerPeer = async (body: RegisterBody) => {
     }
 
     const registerQuery = `INSERT INTO Peers (ip, port, peer_id, is_active, is_transmitting, last_online)
-                VALUES ("${peer.ip}", "${peer.port}", "${peer.peerId}", 1, 0, "${formattedDate}");`
+                VALUES ("${peer.ip}", "${peer.port}", "${peer.peerId}", has_cuda=${peer.hasCuda}, 1, 0, "${formattedDate}");`
 
     try {
         const registerResults = await connection.query(registerQuery)

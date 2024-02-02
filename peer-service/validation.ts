@@ -1,6 +1,6 @@
 
 export const validateFields = (value: any) => {
-    const allowedFields = ['ip', 'port', 'peerId'];
+    const allowedFields = ['ip', 'port', 'peerId', 'hasCuda'];
   
     if (!value || typeof value !== 'object') {
       throw new Error('Invalid request body');

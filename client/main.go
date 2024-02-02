@@ -15,37 +15,39 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+
+	helper "github.com/mmouru/p2p-ml/helper"
 )
 
-const helloProtocol = "/hello/1.0.0"
+const helloProtocol = "/file-transfer/1.0.0"
 
-func readHelloProtocol(s network.Stream) error {
+func fileTransferProtocol(s network.Stream) (string, error) {
 	log.Printf("New incoming connection from peer %s\n", s.Conn().RemotePeer())
 	gzr, err := gzip.NewReader(s)
 	if err != nil {
 		fmt.Println("Error creating gzip reader:", err)
-		return err
+		return "", err
 	}
 	defer gzr.Close()
 
 	decompressedData, err := io.ReadAll(gzr)
 	if err != nil {
 		fmt.Println("Error reading from gzip reader:", err)
-		return err
+		return "", err
 	}
 
-	fmt.Println(string(decompressedData))
+	//fmt.Println(string(decompressedData))
 
-	err = os.WriteFile("moro.txt", decompressedData, 0666)
+	err = os.WriteFile("moro.zip", decompressedData, 0666)
 	if err != nil {
 		fmt.Println("Error reading from gzip reader:", err)
-		return err
+		return "", err
 	}
 
 	//connection := s.Conn()
-
+	fmt.Println("ready with receiving data")
 	//log.Printf("Message from %s: %s", connection.RemotePeer().String(), message)
-	return nil
+	return "ready", nil
 }
 
 func main() {
@@ -59,8 +61,8 @@ func main() {
 	}
 
 	h.SetStreamHandler(helloProtocol, func(s network.Stream) {
-		log.Printf(("/hello/1.00 stream created"))
-		err := readHelloProtocol(s)
+		log.Printf(("/file-transfer/1.00 stream created"))
+		_, err := fileTransferProtocol(s)
 		if err != nil {
 			s.Reset()
 		} else {
@@ -98,7 +100,14 @@ func startPeer(sourcePort string) (host.Host, error) {
 		),
 	)
 
+	respCode := helper.RegisterPeerToCentralList(sourcePort, h.ID().String())
+
+	if respCode != 200 {
+		log.Fatalf("something went wrong with resp code: %d", respCode)
+	}
+
 	fmt.Println("ConnectAdress:", fmt.Sprintf("%s/p2p/%s", h.Addrs()[0], h.ID()))
+	fmt.Println("Public Ip Connection:", fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", helper.GetPublicIp(), sourcePort, h.ID()))
 
 	return h, nil
 
@@ -123,16 +132,37 @@ func connectPeer(h host.Host, peerAddr string) {
 		panic(err)
 	}
 	fmt.Println("Connected to", peerAddrInfo.String())
-	s, err := h.NewStream(context.Background(), peerAddrInfo.ID, "/hello/1.0.0")
+	s, err := h.NewStream(context.Background(), peerAddrInfo.ID, "/file-transfer/1.0.0")
 	if err != nil {
 		panic(err)
 	}
 
-	f, _ := os.Open("./test.txt")
-	content, _ := io.ReadAll(f)
-	gzw := gzip.NewWriter(s)
+	//f, _ := os.Open("./1.png")
+	zip, _ := os.Open("./kalle.zip")
+	defer zip.Close()
 
-	_, err = gzw.Write(content)
+	buffer := make([]byte, 1024)
+	gzw := gzip.NewWriter(s)
+	for {
+		n, err := zip.Read(buffer)
+		if err == io.EOF {
+			break // End of file
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Write the chunk to the gzip writer
+		_, err = gzw.Write(buffer[:n])
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	//content, _ := io.ReadAll(f)
+	//
+
+	//_, err = gzw.Write(content)
 	if err != nil {
 		fmt.Println("Error writing to gzip writer:", err)
 		return

@@ -33,9 +33,11 @@ func sendModelProtocol(s network.Stream) error {
 	}
 	defer gzr.Close()
 
+	os.MkdirAll("weights", 0755)
+
 	modelpth, _ := io.ReadAll(gzr) // virheen käsittely olisi hyväksi
 
-	err = os.WriteFile(fmt.Sprintf("model_%s.pth", s.Conn().RemotePeer()), modelpth, 0666)
+	err = os.WriteFile(fmt.Sprintf("weights/model_%s.pth", s.Conn().RemotePeer()), modelpth, 0666)
 	if err != nil {
 		log.Printf("something went wrong saving model parameters")
 		panic(err)
@@ -72,8 +74,8 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 	// unzip the training set
 	helper.UnzipTrainingSet(zipFileWriteName, "data")
 
-	//defer os.RemoveAll("data")
-	//defer os.RemoveAll(zipFileWriteName)
+	defer os.RemoveAll("data")
+	defer os.RemoveAll(zipFileWriteName)
 
 	// logic to run the training on current computer
 	cmd := exec.Command("python3", "trainer.py")

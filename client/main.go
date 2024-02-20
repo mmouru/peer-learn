@@ -3,13 +3,16 @@ package main
 import (
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 
+	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -23,6 +26,17 @@ import (
 const ftp = "/file-transfer/1.0.0"
 
 const mdlp = "/model-transfer/1.0.0"
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		return origin == "http://localhost:3000"
+	},
+}
+
+//var h host.Host
 
 func sendModelProtocol(s network.Stream) error {
 	log.Printf("Start receiving model parameters from %s\n", s.Conn().RemotePeer())
@@ -130,13 +144,22 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 
 func main() {
 	sp := flag.String("sp", "3001", "Source port for local host")
-	peerAddr := flag.String("peer-address", "", "peer address")
+	//peerAddr := flag.String("peer-address", "", "peer address")
 	flag.Parse()
 
 	h, err := startPeer(*sp) // start listening on port 3001 or specified
 	if err != nil {
 		return
 	}
+
+	go func() {
+		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+			handleWebSocket(w, r, h) // Pass the host.Host variable 'h' here
+		})
+		if err := http.ListenAndServe(":7070", nil); err != nil {
+			log.Fatal("WebSocket server error:", err)
+		}
+	}()
 
 	h.SetStreamHandler(ftp, func(s network.Stream) {
 		log.Printf(("/file-transfer/1.00 stream created"))
@@ -161,9 +184,9 @@ func main() {
 	defer h.Close()
 	//defer joq.jotain() set Peer Disconnecting
 
-	if *peerAddr != "" {
+	/*if *peerAddr != "" {
 		connectPeer(h, *peerAddr)
-	}
+	}*/
 
 	select {} // run indefinetly
 
@@ -189,11 +212,11 @@ func startPeer(sourcePort string) (host.Host, error) {
 		),
 	)
 
-	//respCode := helper.RegisterPeerToCentralList(sourcePort, h.ID().String())
+	respCode := helper.RegisterPeerToCentralList(sourcePort, h.ID().String())
 
-	/*if respCode != 200 {
+	if respCode != 200 {
 		log.Fatalf("something went wrong with resp code: %d", respCode)
-	}*/
+	}
 
 	fmt.Println("ConnectAdress:", fmt.Sprintf("%s/p2p/%s", h.Addrs()[0], h.ID()))
 	fmt.Println("Public Ip Connection:", fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", helper.GetPublicIp(), sourcePort, h.ID()))
@@ -203,7 +226,10 @@ func startPeer(sourcePort string) (host.Host, error) {
 }
 
 // setup connection to peer
-func connectPeer(h host.Host, peerAddr string) {
+func connectPeer(h host.Host, peerIp string, peerPort string, peerId string) {
+	// build the addr string from pieces
+	peerAddr := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", peerIp, peerPort, peerId)
+	// create the peer connection
 	peerMA, err := multiaddr.NewMultiaddr(peerAddr)
 
 	if err != nil {
@@ -214,7 +240,7 @@ func connectPeer(h host.Host, peerAddr string) {
 		panic(err)
 	}
 
-	fmt.Println(peerAddrInfo)
+	fmt.Println(peerAddrInfo, "addr info")
 
 	// Connect to the node at the given address.
 	if err := h.Connect(context.Background(), *peerAddrInfo); err != nil {
@@ -259,4 +285,49 @@ func connectPeer(h host.Host, peerAddr string) {
 	gzw.Close()
 	s.Close()
 	select {}
+}
+
+type PeerInfo struct {
+	Ip     string `json:"ip"`
+	Port   string `json:"port"`
+	PeerId string `json:"peer_id"`
+}
+
+func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
+	// Upgrade HTTP connection to WebSocket connection
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		http.Error(w, "Error upgrading to WebSocket", http.StatusInternalServerError)
+		fmt.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	// Handle WebSocket messages
+	for {
+		_, message, err := conn.ReadMessage() // messageType ekaan jos haluaa palauttaa viestin
+		if err != nil {
+			// Handle error or connection closure
+			return
+		}
+		fmt.Println(string(message))
+		// Process received message (e.g., echo back)
+		var peersToConnect []PeerInfo
+		// unmarshal the stringified JSON
+		if err := json.Unmarshal([]byte(string(message)), &peersToConnect); err != nil {
+			fmt.Println("Error decoding JSON:", err)
+			return
+		}
+
+		for _, peer := range peersToConnect {
+			fmt.Println(peer.Port)
+			go connectPeer(h, "87.100.213.208", "3002", "12D3KooWNBgdPvEAm7VrmLn9ciCpVT4NAQvYsc5PaNvrz2Ax5Mjb")
+		}
+
+		//connectPeer()
+		if err != nil {
+			// Handle error
+			return
+		}
+	}
 }

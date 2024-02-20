@@ -35,13 +35,32 @@ const togglePeerFromList = (peer, list) => {
 }
 
 
+
+const connectPeersAndStartLearning = (event, peers, selected, webSocketConnection) => {
+  event.preventDefault();
+  // First get ids and ports of peers
+  let msg = [];
+  
+  peers.forEach(peer => {
+    if (selected.includes(peer.id)) {
+      msg.push(peer)
+    }
+  });
+  webSocketConnection.send(JSON.stringify(msg));
+}
+
+
 export function PeerTable(props) {
     const [selectedPeers, setSelectedPeers] = useState([]);
+    const [peers, setPeers] = useState(props.peers);
     const [selectedCol, setSelectedCol] = useState(new Array(props.peers.length).fill(false))
+    const [ws, setWs] = useState(props.ws)
+
+  
 
     if (props.select) {
         return (
-          <form onSubmit={() => console.log("MORO")}>
+          <form onSubmit={(event) => connectPeersAndStartLearning(event, peers, selectedPeers, ws)}>
           <table>
             <tbody>
                 <tr>
@@ -65,7 +84,7 @@ export function PeerTable(props) {
                     </th>
 
                 </tr>
-                {props.peers.map((peer, idx) => (
+                {peers.map((peer, idx) => (
                     <tr key={peer.id} className='choose-tr'>
                     <td>
                       {peer.ip}
@@ -74,7 +93,7 @@ export function PeerTable(props) {
                       FI
                     </td>
                     <td>
-                      {peer.has_cuda === 0 ? "❌": "✅"}
+                      {peer.has_cuda === 1 ? "✅": "❌"}
                     </td>
                     {activeHelper(peer.is_active, peer.is_transmitting)}
                     <td>

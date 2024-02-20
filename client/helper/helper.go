@@ -61,7 +61,7 @@ func RegisterPeerToCentralList(port string, p2pId string) int {
 		panic(err)
 	}
 
-	apiURL := "https://peer-service-qfobv32vvq-lz.a.run.app/register"
+	apiURL := "https://peer-service-qfobv32vvq-lz.a.run.app/api/v1/register"
 
 	resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -75,7 +75,7 @@ func RegisterPeerToCentralList(port string, p2pId string) int {
 }
 
 func AppearOfflineOnList() {
-	
+
 }
 
 func HasCUDAGPU() (bool, error) {

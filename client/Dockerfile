@@ -7,7 +7,8 @@ FROM cuda as python
 # Install Python and PyTorch with CUDA support
 RUN apt-get update && apt-get install -y \
     python3 \
-    python3-pip
+    python3-pip \
+    unzip
 
 # Install PyTorch with CUDA support
 RUN pip install torch==1.10.0+cu111 torchvision==0.11.1+cu111 torchaudio==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html

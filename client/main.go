@@ -331,7 +331,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 		for i, peer := range peersToConnect {
 			fmt.Println(peer.Port)
 			train_split := fmt.Sprintf("./splits/split_%d.zip", i+1)
-			go connectPeer(h, "87.100.213.208", "3002", "12D3KooWGoDqQZYz1wszMXHAo6MFDYYE2V4tKdkLFWBxkKEKKc2Q", train_split)
+			go connectPeer(h, peer.Ip, peer.Port, peer.PeerId, train_split)
 		}
 
 		//connectPeer()

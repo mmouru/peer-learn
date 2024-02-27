@@ -86,13 +86,13 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 	fmt.Println("ready with receiving data")
 
 	// unzip the training set
-	helper.UnzipTrainingSet(zipFileWriteName, "data")
+	helper.UnzipFile(zipFileWriteName, "data")
 
 	defer os.RemoveAll("data")
 	defer os.RemoveAll(zipFileWriteName)
 
 	// logic to run the training on current computer
-	cmd := exec.Command("python3", "trainer.py")
+	cmd := exec.Command("python3", "/helper/trainer.py")
 
 	err = cmd.Run()
 
@@ -155,6 +155,9 @@ func main() {
 	go func() {
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 			handleWebSocket(w, r, h) // Pass the host.Host variable 'h' here
+		})
+		http.HandleFunc("/filetransfer", func(w http.ResponseWriter, r *http.Request) {
+			filetransferWebSocket(w, r)
 		})
 		if err := http.ListenAndServe(":7070", nil); err != nil {
 			log.Fatal("WebSocket server error:", err)
@@ -226,7 +229,7 @@ func startPeer(sourcePort string) (host.Host, error) {
 }
 
 // setup connection to peer
-func connectPeer(h host.Host, peerIp string, peerPort string, peerId string) {
+func connectPeer(h host.Host, peerIp string, peerPort string, peerId string, data_split string) {
 	// build the addr string from pieces
 	peerAddr := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", peerIp, peerPort, peerId)
 	// create the peer connection
@@ -252,9 +255,9 @@ func connectPeer(h host.Host, peerIp string, peerPort string, peerId string) {
 		panic(err)
 	}
 
-	//f, _ := os.Open("./1.png")
-	zip, _ := os.Open("./train_set.zip")
+	zip, _ := os.Open(data_split)
 	defer zip.Close()
+	// defer os.RemoveAll(data_split)
 
 	buffer := make([]byte, 1024)
 	gzw := gzip.NewWriter(s)
@@ -295,6 +298,7 @@ type PeerInfo struct {
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 	// Upgrade HTTP connection to WebSocket connection
+	fmt.Println("MOIRO")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "Error upgrading to WebSocket", http.StatusInternalServerError)
@@ -319,9 +323,15 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 			return
 		}
 
-		for _, peer := range peersToConnect {
+		// Split training data between peers.
+		n_peers := len(peersToConnect)
+		n_peers = 4
+		helper.SplitTrainingDataAmongPeers(n_peers, "./all_training_data")
+
+		for i, peer := range peersToConnect {
 			fmt.Println(peer.Port)
-			go connectPeer(h, "87.100.213.208", "3002", "12D3KooWNBgdPvEAm7VrmLn9ciCpVT4NAQvYsc5PaNvrz2Ax5Mjb")
+			train_split := fmt.Sprintf("./splits/split_%d.zip", i+1)
+			go connectPeer(h, "87.100.213.208", "3002", "12D3KooWGoDqQZYz1wszMXHAo6MFDYYE2V4tKdkLFWBxkKEKKc2Q", train_split)
 		}
 
 		//connectPeer()
@@ -329,5 +339,41 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 			// Handle error
 			return
 		}
+	}
+}
+
+func filetransferWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Upgrade HTTP connection to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Upgrade error:", err)
+		return
+	}
+	defer conn.Close()
+
+	// Read the message which should be the file content
+	_, fileData, err := conn.ReadMessage()
+	if err != nil {
+		log.Println("Read error:", err)
+		return
+	}
+
+	// Save the received file data to a file
+	datasetZipFileName := "train_set.zip"
+	err = os.WriteFile(datasetZipFileName, fileData, 0644)
+	if err != nil {
+		log.Println("Error saving file:", err)
+		conn.WriteMessage(websocket.TextMessage, []byte("File transfer completed successfully"))
+		return
+	}
+
+	log.Println("File saved successfully")
+
+	helper.UnzipFile(datasetZipFileName, "all_training_data")
+
+	err = conn.WriteMessage(websocket.TextMessage, []byte("File transfer completed successfully"))
+	if err != nil {
+		log.Println("Error sending completion message:", err)
+		return
 	}
 }

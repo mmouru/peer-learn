@@ -14,13 +14,6 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     ports:
       - "7070:7070"
       - "3001:3001"

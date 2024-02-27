@@ -1,5 +1,16 @@
 
 import { useState } from 'react';
+import { FileSelection, showFileSize, checkForZipType } from './FileSelection';
+import CircularProgress from '@mui/material/CircularProgress';
+import Box from '@mui/material/Box';
+
+const LearningStatus = {
+  NOT_STARTED: 0,
+  SPLITTING: 1,
+  LEARNING: 2,
+  COMBINING: 3,
+  DONE: 4
+};
 
 const activeHelper = (is_active, is_transmitting) => {
     
@@ -20,6 +31,44 @@ const activeHelper = (is_active, is_transmitting) => {
     )
 }
 
+export const StatusHandler = (props) => {
+  const s = props.status
+
+  if (s === LearningStatus.NOT_STARTED) {
+    return (<p>jotain tapahtuu</p>)
+  }
+
+  let backgroundColor1, backgroundColor2, backgroundColor3 = "white"
+
+  if (s === LearningStatus.SPLITTING) {
+    backgroundColor1 = "orange"
+  } 
+  else if (s === LearningStatus.LEARNING) {
+    backgroundColor1 = "green"
+    backgroundColor2 = "orange"
+  }
+  else if (s === LearningStatus.COMBINING) {
+    backgroundColor1 = "green"
+    backgroundColor2 = "green"
+    backgroundColor3 = "orange"
+  }
+  else if ( s === LearningStatus.DONE) {
+    backgroundColor1 = "green"
+    backgroundColor2 = "green"
+    backgroundColor3 = "green"
+  }
+
+
+  return (
+    <div className="container">
+      <CircularProgress />
+      <div className="box" style={{backgroundColor: backgroundColor1}}>Splitting the training set <span className="arrow">&rarr;</span></div>
+      <div className="box" style={{backgroundColor: backgroundColor2}}>Peer Learning in progress <span className="arrow">&rarr;</span></div>
+      <div className="box" style={{backgroundColor: backgroundColor3}}><CircularProgress />Constructing the model</div>
+    </div>
+  )
+}
+
 const togglePeerFromList = (peer, list) => {
     const cp = list;
     const index = cp.indexOf(peer);
@@ -34,10 +83,37 @@ const togglePeerFromList = (peer, list) => {
     return cp
 }
 
+async function sendFileAndWaitForResponse(ws, zipFile) {
+  try {
+      // Send message to server
+      ws.send(zipFile)
 
+      // Wait for response message from server
+      return new Promise((resolve, reject) => {
+        ws.onmessage = (event) => {
+              console.log("Received message from server:", event.data);
+              resolve(event.data); // Resolve the promise with the received message
+          };
+      });
+  } catch (error) {
+      console.error("Error:", error);
+  }
+}
 
-const connectPeersAndStartLearning = (event, peers, selected, webSocketConnection) => {
+const startLearningProcess = async (event, zipFile, peers, selected, webSocketConnection, fileTransferProtocol, statusChanger) => {
+  // prevent default form submission, handle all manually
   event.preventDefault();
+
+  statusChanger(LearningStatus.SPLITTING)
+  const res = await sendFileAndWaitForResponse(fileTransferProtocol, zipFile)
+  
+  if (res != "File transfer completed successfully") {
+    throw Error("moroo")
+  }
+  statusChanger(LearningStatus.LEARNING)
+  
+  // first connect to application and send selected zip file
+
   // First get ids and ports of peers
   let msg = [];
   
@@ -46,22 +122,39 @@ const connectPeersAndStartLearning = (event, peers, selected, webSocketConnectio
       msg.push(peer)
     }
   });
+  console.log(webSocketConnection, fileTransferProtocol)
   webSocketConnection.send(JSON.stringify(msg));
+  statusChanger(LearningStatus.COMBINING)
 }
 
 
 export function PeerTable(props) {
-    const [selectedPeers, setSelectedPeers] = useState([]);
-    const [peers, setPeers] = useState(props.peers);
-    const [selectedCol, setSelectedCol] = useState(new Array(props.peers.length).fill(false))
-    const [ws, setWs] = useState(props.ws)
+    const peers = props.peers;
+    const ws = props.ws;
+    const filetransferWs = props.filetransferWs;
 
-  
+    const [selectedPeers, setSelectedPeers] = useState([]);
+    const [selectedFile, setSelectedFiles] = useState({name: "", size: 0, type: ""});
+    const [status, setStatus] = useState(LearningStatus.NOT_STARTED)
+
+    const handleFileChange = (event) => {
+      const files = event.target.files;
+      console.log(files)
+      setSelectedFiles(files[0]);
+    };
+    
 
     if (props.select) {
+      
         return (
-          <form onSubmit={(event) => connectPeersAndStartLearning(event, peers, selectedPeers, ws)}>
-          <table>
+          <>
+          <StatusHandler status={status} />
+          
+          <form onSubmit={(event) => startLearningProcess(event, selectedFile, peers, selectedPeers, ws, filetransferWs, setStatus)}>
+            
+          <div className='peercon'>
+            <p>Select peers</p>
+            <table>
             <tbody>
                 <tr>
                     <th>
@@ -106,8 +199,35 @@ export function PeerTable(props) {
                 ))}
             </tbody>
         </table>
+        </div>
+        <div className='peercon'>
+        <div>
+        <p> File drop </p>
+        <input type="file" onChange={handleFileChange}/>
+          <table>
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>File Size</th>
+              </tr>
+            </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    {selectedFile.name}
+                  </td>
+                  <td>
+                    {showFileSize(selectedFile.size)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          {checkForZipType(selectedFile) ? <p style={{color: "red"}}>Requires zip file!</p> : ""}
+        </div>
+        </div>
         <button type="submit">Connect</button>
         </form>
+        </>
         )
     }
     return (

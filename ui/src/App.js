@@ -6,22 +6,21 @@ function App() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [peers, setPeers] = useState([])
-  const [selectedFiles, setSelectedFiles] = useState([]);
+  
   const [connect, setConnect] = useState(false);
   const [ws, setWs] = useState(null)
-
-  const handleFileChange = (event) => {
-    const files = event.target.files;
-    setSelectedFiles([...selectedFiles, ...files]);
-  };
-
-  
+  const [fileTransferWs, setFileTransferWs] = useState(null)
 
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:7070/ws")
     ws.onopen = () => {
       setWs(ws);
-    }
+    };
+
+    const ws2 = new WebSocket("ws://localhost:7070/filetransfer")
+    ws2.onopen = () => {
+      setFileTransferWs(ws2);
+    };
   }, [])
 
   useEffect(() => {
@@ -53,38 +52,14 @@ function App() {
       {connect && (
         <div className="overlay">
           <div className="window">
-            <button style={{}} onClick={() => setConnect(false)}>x</button>
-            <PeerTable peers={peers} select={true} ws={ws}/>
-            
+            <button className='close-btn' onClick={() => setConnect(false)}>X</button>
+            <PeerTable peers={peers} select={true} ws={ws} filetransferWs={fileTransferWs}/>
           </div>
         </div>
       )}
       <div>
         <p>Connected Peers</p>
-        <PeerTable peers={peers} select={false} ws={ws}/>
-      </div>
-      <div>
-        <p> File drop </p>
-        <input type="file" onChange={handleFileChange} multiple/>
-        {selectedFiles.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>File Name</th>
-              <th>File Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selectedFiles.map((file, index) => (
-              <tr key={index}>
-                <td>{file.name}</td>
-                <td>{file.size} bytes</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      
+        <PeerTable peers={peers} select={false}/>
       </div>
       <div>
         <p>Establish connection</p>

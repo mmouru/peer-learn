@@ -18,9 +18,10 @@
   background: #fff;
   padding: 20px;
   border-radius: 8px;
-  max-width: 400px;
+  width: 60%;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
   animation: slideIn 0.5s ease-out; /* Adjust the duration and easing as needed */
+  position: relative;
 }
 
 @keyframes slideIn {
@@ -38,4 +39,50 @@ table, th, td {
 
 .choose-tr:hover {
   background-color: bisque;
+}
+
+.peercon {
+  display: inline-block;
+  margin: 20px;
+}
+
+
+.close-btn {
+  position: absolute; /* Position the close button absolutely */
+  top: 5px; /* Adjust top position */
+  right: 5px; /* Adjust right position */
+  cursor: pointer; /* Change cursor to pointer on hover */
+  padding: 5px; /* Add padding for better clickability */
+  background-color: #ccc; /* Set background color */
+  border-radius: 50%; /* Make it a circle */
+  width: 30px; /* Set width */
+  height: 30px; /* Set height */
+  text-align: center; /* Center text horizontally */
+  line-height: 20px; /* Center text vertically */
+}
+
+.close-btn:hover {
+  background-color: #aaa; /* Change background color on hover */
+  color: #fff; /* Change text color on hover */
+}
+
+.container {
+  display: flex;
+  justify-content: center;
+}
+
+.box {
+  width: 100px;
+  height: 100px;
+  border: 1px solid black;
+  margin-right: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative; /* For arrow positioning */
+}
+
+.arrow {
+  position: absolute;
+  right: -15px; /* Adjust arrow position */
 }

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -74,8 +76,28 @@ func RegisterPeerToCentralList(port string, p2pId string) int {
 	return resp.StatusCode
 }
 
-func AppearOfflineOnList() {
+func LocalLearningProcess(datasplit string) {
+	UnzipFile(datasplit, "data")
+	//defer os.RemoveAll("data")
 
+	fmt.Println("START MODEL TRAINING")
+	// logic to run the training on current computer
+	cmd := exec.Command("python3", "helper/trainer.py")
+
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		log.Println(err)
+		os.RemoveAll("data")
+	}
+
+	fmt.Println("Finished with training the model:", string(output))
+	// move the model state dict to weights
+	err = os.Rename("./data/model_state_dict.pth", "./weights/model_self.pth")
+	if err != nil {
+		fmt.Println("Error moving file:", err)
+		return
+	}
 }
 
 func HasCUDAGPU() (bool, error) {

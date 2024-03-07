@@ -10,8 +10,9 @@ import glob
 import os
 
 ## Confirm the device
-device = "cpu" #torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #print(device)
+device = torch.device("cpu")
 
 ## We already need to have normalized data that is passed to clients
 

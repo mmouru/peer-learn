@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { FileSelection, showFileSize, checkForZipType } from './FileSelection';
 import CircularProgress from '@mui/material/CircularProgress';
-import Box from '@mui/material/Box';
 
 const LearningStatus = {
   NOT_STARTED: 0,
@@ -35,13 +34,14 @@ export const StatusHandler = (props) => {
   const s = props.status
 
   if (s === LearningStatus.NOT_STARTED) {
-    return (<p>jotain tapahtuu</p>)
+    return (<></>)
   }
 
   let backgroundColor1, backgroundColor2, backgroundColor3 = "white"
 
   if (s === LearningStatus.SPLITTING) {
     backgroundColor1 = "orange"
+    backgroundColor2 = "white"
   } 
   else if (s === LearningStatus.LEARNING) {
     backgroundColor1 = "green"
@@ -56,17 +56,42 @@ export const StatusHandler = (props) => {
     backgroundColor1 = "green"
     backgroundColor2 = "green"
     backgroundColor3 = "green"
+    console.log(props.model)
   }
 
+  function handleModelDownload(data) {
+    const blob = new Blob([data]);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'model.pth';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  if (s !== LearningStatus.DONE) {
+    return (
+    
+      <div className="container">
+        
+        <div className="box" style={{backgroundColor: backgroundColor1}}>Splitting the training set <span className="arrow">&rarr;</span></div>
+        <div className="box" style={{backgroundColor: backgroundColor2}}>Peer Learning in progress <span className="arrow">&rarr;</span></div>
+        <div className="box" style={{backgroundColor: backgroundColor3}}>Constructing the model</div>
+        <CircularProgress />
+      </div>
+    )
+  }
 
   return (
     <div className="container">
-      <CircularProgress />
-      <div className="box" style={{backgroundColor: backgroundColor1}}>Splitting the training set <span className="arrow">&rarr;</span></div>
-      <div className="box" style={{backgroundColor: backgroundColor2}}>Peer Learning in progress <span className="arrow">&rarr;</span></div>
-      <div className="box" style={{backgroundColor: backgroundColor3}}><CircularProgress />Constructing the model</div>
+        <h2>model.pth</h2>
+          {/* You can handle the received model data here */}
+          <button className="download" onClick={() => handleModelDownload(props.model)}>Download</button>
     </div>
   )
+  
 }
 
 const togglePeerFromList = (peer, list) => {
@@ -100,12 +125,44 @@ async function sendFileAndWaitForResponse(ws, zipFile) {
   }
 }
 
-const startLearningProcess = async (event, zipFile, peers, selected, webSocketConnection, fileTransferProtocol, statusChanger) => {
+async function startPeerLearningProcess(ws, msg) {
+  try {
+      // Send message to server
+      ws.send(JSON.stringify(msg))
+      // Wait for response message from server
+      return new Promise((resolve, reject) => {
+        ws.onmessage = (event) => {
+              console.log("Received message from server:", event.data);
+              resolve(event.data); // Resolve the promise with the received message
+          };
+      });
+  } catch (error) {
+      console.error("Error:", error);
+  }
+}
+
+async function waitForModelParameters(ws) {
+  try {
+      // Send message to server
+      ws.binaryType = "blob";
+      // Wait for response message from server
+      return new Promise((resolve, reject) => {
+        ws.onmessage = (event) => {
+              console.log("Received message from server:", event.data);
+              resolve(event.data); // Resolve the promise with the received message
+          };
+      });
+  } catch (error) {
+      console.error("Error:", error);
+  }
+}
+
+const startLearningProcess = async (event, zipFile, peers, selected, webSocketConnection, fileTransferProtocol, statusChanger, setCompleteModel) => {
   // prevent default form submission, handle all manually
   event.preventDefault();
 
   statusChanger(LearningStatus.SPLITTING)
-  const res = await sendFileAndWaitForResponse(fileTransferProtocol, zipFile)
+  let res = await sendFileAndWaitForResponse(fileTransferProtocol, zipFile)
   
   if (res != "File transfer completed successfully") {
     throw Error("moroo")
@@ -123,8 +180,18 @@ const startLearningProcess = async (event, zipFile, peers, selected, webSocketCo
     }
   });
   console.log(webSocketConnection, fileTransferProtocol)
-  webSocketConnection.send(JSON.stringify(msg));
+  res = await startPeerLearningProcess(webSocketConnection, msg);
+
+  if (res != "Peer learning completed!") {
+    throw Error("Error in peer training")
+  }
+
   statusChanger(LearningStatus.COMBINING)
+
+  //webSocketConnection.onmessage(setCompleteModel(event.data))
+  res = await waitForModelParameters(webSocketConnection);
+  setCompleteModel(res)
+  statusChanger(LearningStatus.DONE)
 }
 
 
@@ -135,7 +202,8 @@ export function PeerTable(props) {
 
     const [selectedPeers, setSelectedPeers] = useState([]);
     const [selectedFile, setSelectedFiles] = useState({name: "", size: 0, type: ""});
-    const [status, setStatus] = useState(LearningStatus.NOT_STARTED)
+    const [status, setStatus] = useState(LearningStatus.NOT_STARTED);
+    const [completeModel, setCompleteModel] = useState(null);
 
     const handleFileChange = (event) => {
       const files = event.target.files;
@@ -148,12 +216,12 @@ export function PeerTable(props) {
       
         return (
           <>
-          <StatusHandler status={status} />
+          <StatusHandler status={status} model={completeModel} />
           
-          <form onSubmit={(event) => startLearningProcess(event, selectedFile, peers, selectedPeers, ws, filetransferWs, setStatus)}>
+          <form onSubmit={(event) => startLearningProcess(event, selectedFile, peers, selectedPeers, ws, filetransferWs, setStatus, setCompleteModel)}>
             
           <div className='peercon'>
-            <p>Select peers</p>
+            <p>Peers</p>
             <table>
             <tbody>
                 <tr>
@@ -170,14 +238,11 @@ export function PeerTable(props) {
                       online
                     </th>
                     <th>
-                      previously
-                    </th>
-                    <th>
                       select
                     </th>
 
                 </tr>
-                {peers.map((peer, idx) => (
+                {peers.filter(peer => peer.is_active == 1).map(peer => (
                     <tr key={peer.id} className='choose-tr'>
                     <td>
                       {peer.ip}
@@ -190,9 +255,6 @@ export function PeerTable(props) {
                     </td>
                     {activeHelper(peer.is_active, peer.is_transmitting)}
                     <td>
-                      {peer.last_online.slice(0,10)}
-                    </td>
-                    <td>
                         <input type="checkbox" onClick={() => setSelectedPeers(togglePeerFromList(peer.id, selectedPeers))}/>
                     </td>
                   </tr>
@@ -200,11 +262,11 @@ export function PeerTable(props) {
             </tbody>
         </table>
         </div>
-        <div className='peercon'>
+        <div className='peercon' id="fileselect">
         <div>
-        <p> File drop </p>
+        <p> Training set </p>
         <input type="file" onChange={handleFileChange}/>
-          <table>
+          <table id="filetable">
             <thead>
               <tr>
                 <th>File Name</th>
@@ -225,7 +287,7 @@ export function PeerTable(props) {
           {checkForZipType(selectedFile) ? <p style={{color: "red"}}>Requires zip file!</p> : ""}
         </div>
         </div>
-        <button type="submit">Connect</button>
+        <button type="submit">Start Learning</button>
         </form>
         </>
         )

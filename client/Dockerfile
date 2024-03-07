@@ -23,4 +23,4 @@ COPY . .
 RUN go build -o main .
 
 # Define the command to run the Go application
-CMD ["./main", "-sp", "3002"]
+CMD ["./main", "-sp", "3000"]

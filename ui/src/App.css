@@ -2,6 +2,14 @@
   text-align: center;
 }
 
+th {
+  width: 100px
+}
+
+.form-button {
+  margin-top: auto; /* Pushes the button to the bottom */
+}
+
 .overlay {
   position: fixed;
   top: 0;
@@ -14,13 +22,22 @@
   align-items: center;
 }
 
+body {
+  background-color: rgba(116, 113, 113, 0.212);
+}
+
+.download {
+  padding: 10px 0;
+}
+
 .window {
-  background: #fff;
+  background: rgb(214, 211, 211);;
   padding: 20px;
   border-radius: 8px;
   width: 60%;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
   animation: slideIn 0.5s ease-out; /* Adjust the duration and easing as needed */
+  max-width: 400px;
   position: relative;
 }
 
@@ -35,6 +52,11 @@
 
 table, th, td {
   border: 1px solid black;
+  background-color: white;
+}
+
+button {
+  color: green
 }
 
 .choose-tr:hover {
@@ -43,11 +65,23 @@ table, th, td {
 
 .peercon {
   display: inline-block;
-  margin: 20px;
+  width: 90%;
+  margin: 0 20px;
 }
 
+#fileselect {
+  padding: 20px 0;
+  display: flex;
+  justify-content: center;
+}
+
+#filetable {
+  margin-top: 15px;
+  align-items: center;
+}
 
 .close-btn {
+  color: black;
   position: absolute; /* Position the close button absolutely */
   top: 5px; /* Adjust top position */
   right: 5px; /* Adjust right position */
@@ -69,6 +103,7 @@ table, th, td {
 .container {
   display: flex;
   justify-content: center;
+  align-items: center;
 }
 
 .box {

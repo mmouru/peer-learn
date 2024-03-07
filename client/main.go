@@ -1,3 +1,8 @@
+/*
+** This file serves as the core component of the p2p peer learn client. It handles the binding of sockets for P2P and UI communication,
+** defines file protocols, and generates streams of data.
+ */
+
 package main
 
 import (
@@ -11,6 +16,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
 
 	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p"
@@ -23,8 +32,8 @@ import (
 	helper "github.com/mmouru/p2p-ml/helper"
 )
 
+// Define variable to be used
 const ftp = "/file-transfer/1.0.0"
-
 const mdlp = "/model-transfer/1.0.0"
 
 var upgrader = websocket.Upgrader{
@@ -36,8 +45,13 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-//var h host.Host
+// Wait group is used to synchronize the ensembling of peer models
+var wg sync.WaitGroup
 
+/*
+**	Model transfer protocol to transfer trained weights to requester peer
+**	Here reader saves the weights to model pth file that is named by the peer id.
+ */
 func sendModelProtocol(s network.Stream) error {
 	log.Printf("Start receiving model parameters from %s\n", s.Conn().RemotePeer())
 	gzr, err := gzip.NewReader(s)
@@ -51,17 +65,29 @@ func sendModelProtocol(s network.Stream) error {
 
 	modelpth, _ := io.ReadAll(gzr) // virheen käsittely olisi hyväksi
 
-	err = os.WriteFile(fmt.Sprintf("weights/model_%s.pth", s.Conn().RemotePeer()), modelpth, 0666)
+	filepath := fmt.Sprintf("weights/model_%s", s.Conn().RemotePeer())
+
+	err = os.WriteFile(fmt.Sprintf("%s.pth", filepath), modelpth, 0666)
 	if err != nil {
 		log.Printf("something went wrong saving model parameters")
 		panic(err)
 	}
 
+	defer wg.Done()
+
 	return nil
 }
 
+/*
+** File transfer protocol for transfering training data to peers.
+** The model training is also started during this protocol.
+ */
 func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
+
 	log.Printf("New incoming connection from peer %s\n", s.Conn().RemotePeer())
+
+	// inform tracker that we are transmitting
+	helper.InformTrackerTransmission(h.ID().String(), "1")
 	gzr, err := gzip.NewReader(s)
 	if err != nil {
 		fmt.Println("Error creating gzip reader:", err)
@@ -76,7 +102,7 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 	}
 
 	//fmt.Println(string(decompressedData))
-	zipFileWriteName := "train_set2.zip"
+	zipFileWriteName := "train_set.zip"
 
 	err = os.WriteFile(zipFileWriteName, decompressedData, 0666)
 	if err != nil {
@@ -88,39 +114,50 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 	// unzip the training set
 	helper.UnzipFile(zipFileWriteName, "data")
 
-	defer os.RemoveAll("data")
+	//defer os.RemoveAll("data")
 	defer os.RemoveAll(zipFileWriteName)
 
+	done := make(chan bool)
+	helper.Spinner("Training the model", done)
 	// logic to run the training on current computer
-	cmd := exec.Command("python3", "/helper/trainer.py")
+	cmd := exec.Command("python3", "helper/trainer.py")
 
-	err = cmd.Run()
+	output, err := cmd.CombinedOutput()
 
 	if err != nil {
 		log.Println(err)
 		os.RemoveAll("data")
 		os.RemoveAll(zipFileWriteName)
 	}
-	fmt.Println("Finished with training the model")
+
+	done <- true
+
+	outputStr := string(output)
+	// Split the output into lines
+	lines := strings.Split(strings.TrimSpace(outputStr), "\n")
+	// Read the last line
+	lastLine := lines[len(lines)-1]
+
+	fmt.Println("Finished with training the model:", lastLine)
 
 	// if no err in training return the model parameters to the requester
-	model, err := os.Open("./data/model_state_dict.pth")
+	pth, err := os.Open("./data/model_state_dict.pth")
 
 	if err != nil {
-		log.Printf("JOO EI VOINU AVATA MODEL PTHs")
+		log.Printf("Error opening the model state dict.", err)
 	}
 
 	s2, err := h.NewStream(context.Background(), s.Conn().RemotePeer(), mdlp)
 
 	if err != nil {
-		log.Printf("Joo ei pygeny avaa uuttaa conenction")
+		log.Printf("Can not open stream to peer", err)
 	}
 
 	buffer := make([]byte, 1024)
 	gzw := gzip.NewWriter(s2)
 
 	for {
-		n, err := model.Read(buffer)
+		n, err := pth.Read(buffer)
 		if err == io.EOF {
 			break // End of file
 		}
@@ -136,15 +173,22 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 	}
 	fmt.Println("ready with sending data")
 	s2.Close()
-	// then return the saved weights or something???
 
-	//log.Printf("Message from %s: %s", connection.RemotePeer().String(), message)
+	helper.InformTrackerTransmission(h.ID().String(), "0")
 	return "ready", nil
 }
 
+/*
+** The main function that starts the client and binds to listen for peers
+** or instructions from the user interface.
+ */
+
 func main() {
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+
 	sp := flag.String("sp", "3001", "Source port for local host")
-	//peerAddr := flag.String("peer-address", "", "peer address")
 	flag.Parse()
 
 	h, err := startPeer(*sp) // start listening on port 3001 or specified
@@ -184,14 +228,12 @@ func main() {
 		}
 	})
 
+	defer helper.DisconnectFromTracker(h.ID().String())
 	defer h.Close()
-	//defer joq.jotain() set Peer Disconnecting
 
-	/*if *peerAddr != "" {
-		connectPeer(h, *peerAddr)
-	}*/
+	<-sig
 
-	select {} // run indefinetly
+	fmt.Println("Received termination signal. Exiting...")
 
 }
 
@@ -206,7 +248,7 @@ func startPeer(sourcePort string) (host.Host, error) {
 		panic(err)
 	}
 
-	h, err := libp2p.New(
+	h, _ := libp2p.New(
 		// Use the keypair we generated
 		libp2p.Identity(priv),
 		// Multiple listen addresses
@@ -257,34 +299,28 @@ func connectPeer(h host.Host, peerIp string, peerPort string, peerId string, dat
 
 	zip, _ := os.Open(data_split)
 	defer zip.Close()
-	// defer os.RemoveAll(data_split)
+
+	defer os.RemoveAll(data_split)
 
 	buffer := make([]byte, 1024)
 	gzw := gzip.NewWriter(s)
 	for {
 		n, err := zip.Read(buffer)
+
 		if err == io.EOF {
 			break // End of file
 		}
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(err, "Something went wrong to reading the file to buffer.")
 		}
 
 		// Write the chunk to the gzip writer
 		_, err = gzw.Write(buffer[:n])
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal(err, "Something went wrong while writing the bytestream.")
 		}
 	}
 
-	//content, _ := io.ReadAll(f)
-	//
-
-	//_, err = gzw.Write(content)
-	if err != nil {
-		fmt.Println("Error writing to gzip writer:", err)
-		return
-	}
 	gzw.Close()
 	s.Close()
 	select {}
@@ -298,7 +334,6 @@ type PeerInfo struct {
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 	// Upgrade HTTP connection to WebSocket connection
-	fmt.Println("MOIRO")
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "Error upgrading to WebSocket", http.StatusInternalServerError)
@@ -307,14 +342,13 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 	}
 	defer conn.Close()
 
-	// Handle WebSocket messages
+	// Handle WebSocket connection from UI
 	for {
 		_, message, err := conn.ReadMessage() // messageType ekaan jos haluaa palauttaa viestin
 		if err != nil {
 			// Handle error or connection closure
 			return
 		}
-		fmt.Println(string(message))
 		// Process received message (e.g., echo back)
 		var peersToConnect []PeerInfo
 		// unmarshal the stringified JSON
@@ -323,24 +357,68 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 			return
 		}
 
+		helper.InformTrackerTransmission(h.ID().String(), "1")
+
 		// Split training data between peers.
-		n_peers := len(peersToConnect)
-		n_peers = 4
+		n_peers := len(peersToConnect) + 1 // + 1 for self learning
 		helper.SplitTrainingDataAmongPeers(n_peers, "./all_training_data")
 
+		// 1 split for learning locally
+		wg.Add(1)
+		go func() {
+			helper.LocalLearningProcess("./splits/split_1.zip")
+			defer wg.Done()
+		}()
+
 		for i, peer := range peersToConnect {
-			fmt.Println(peer.Port)
-			train_split := fmt.Sprintf("./splits/split_%d.zip", i+1)
-			go connectPeer(h, peer.Ip, peer.Port, peer.PeerId, train_split)
+			wg.Add(1)
+			train_split := fmt.Sprintf("./splits/split_%d.zip", i+2)
+			go func(peer PeerInfo, trainSplit string) {
+				connectPeer(h, peer.Ip, peer.Port, peer.PeerId, trainSplit)
+			}(peer, train_split)
 		}
 
-		//connectPeer()
+		wg.Wait()
+		fmt.Println("All trainers have completed.")
+
+		defer os.RemoveAll("./weights")
+
+		conn.WriteMessage(websocket.TextMessage, []byte("Peer learning completed!"))
+
+		ensemble := exec.Command("python3", "helper/ensemble.py")
+
+		output, err := ensemble.CombinedOutput()
+
 		if err != nil {
-			// Handle error
+			fmt.Println(output)
+			panic(err)
+		}
+
+		// Send the ensembled model to be downloaded from UI
+		averagedModelName := "averaged_model_state_dict.pth"
+		file, err := os.ReadFile(averagedModelName)
+
+		defer os.RemoveAll(averagedModelName)
+		if err != nil {
+			log.Println("Error reading file:", err)
+			return
+		}
+
+		helper.InformTrackerTransmission(h.ID().String(), "0")
+
+		// Write file data to WebSocket connection
+		err = conn.WriteMessage(websocket.BinaryMessage, file)
+		if err != nil {
+			log.Println("Error sending file:", err)
 			return
 		}
 	}
 }
+
+/*
+** Websocket communication between client and UI to serve the training data
+** for client and ultimately to peers.
+ */
 
 func filetransferWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade HTTP connection to WebSocket
@@ -363,7 +441,7 @@ func filetransferWebSocket(w http.ResponseWriter, r *http.Request) {
 	err = os.WriteFile(datasetZipFileName, fileData, 0644)
 	if err != nil {
 		log.Println("Error saving file:", err)
-		conn.WriteMessage(websocket.TextMessage, []byte("File transfer completed successfully"))
+		conn.WriteMessage(websocket.TextMessage, []byte("File transfer failure"))
 		return
 	}
 

@@ -18,26 +18,42 @@ func UnzipFile(zipFileName string, nameForFolder string) {
 		return
 	}
 
-	// Command to run the unzip command
-	cmd := exec.Command("unzip", zipFileName, "-d", folderName)
+	cmd := exec.Command("unzip", "-o", zipFileName, "-d", nameForFolder)
+
+	done := make(chan bool)
+	go Spinner("Extracting training data", done)
 
 	// Run the command
-	output, err := cmd.CombinedOutput()
+	err = cmd.Run()
 	if err != nil {
 		fmt.Println("Error executing unzip command:", err)
 		return
 	}
 
-	// Print the output of the command
-	fmt.Println(string(output))
+	done <- true
 
 	fmt.Println("Extraction completed successfully.")
+
+}
+
+func ZipFile(filepath string, zipfileName string) {
+
+	cmd := exec.Command(fmt.Sprintf("zip %s %s", zipfileName, filepath))
+
+	err := cmd.Run()
+
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func SplitTrainingDataAmongPeers(n_peers int, trainingDataFolder string) {
 
 	defer os.RemoveAll(trainingDataFolder)
-	fmt.Println("NO MOROOOOO")
+
+	done := make(chan bool)
+	go Spinner("Splitting the training set", done)
+
 	cmd := exec.Command("./helper/splits.py", fmt.Sprint(n_peers), trainingDataFolder)
 
 	err := cmd.Run()
@@ -45,4 +61,8 @@ func SplitTrainingDataAmongPeers(n_peers int, trainingDataFolder string) {
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	done <- true
+
+	fmt.Println(fmt.Printf("Training set split into %d sets.\n", n_peers))
 }

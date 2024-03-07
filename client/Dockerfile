@@ -1,33 +1,26 @@
-# Use a suitable base image that has both Golang and Python with CUDA installed
-FROM nvidia/cuda:12.3.1-runtime-ubuntu20.04 as cuda
+FROM golang:1.21.6
 
-# Install Python and required libraries with CUDA support
-FROM cuda as python
-
-# Install Python and PyTorch with CUDA support
+# Install Python and pip dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    unzip
+    python3-dev \
+    build-essential \
+    unzip \
+    zip
 
-# Install PyTorch with CUDA support
-RUN pip install torch==1.10.0+cu111 torchvision==0.11.1+cu111 torchaudio==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
+# Install PyTorch and torchvision
+RUN pip install torch==2.2.1+cpu torchvision==0.17.1+cpu -f https://download.pytorch.org/whl/torch_stable.html --break-system-packages
 
-# Now, combine both Golang and Python images
-FROM golang:1.21.6
+# Set up environment variables for the Python library path
+ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
 
-# Copy Python and PyTorch from the Python image with CUDA
-COPY --from=python /usr/local/cuda /usr/local/cuda
-COPY --from=python /usr/local/bin /usr/local/bin
-
-# Set up environment variables for Python with CUDA
-ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
-# Now you can add your Golang code
+# Set the working directory and copy the Go application code
 WORKDIR /go/src/app
 COPY . .
 
-# Build your Golang application
+# Build the Go application
 RUN go build -o main .
 
-# Define the command to run the Golang application
-CMD ["./main"]
+# Define the command to run the Go application
+CMD ["./main", "-sp", "3000"]

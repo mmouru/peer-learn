@@ -17,7 +17,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 
@@ -61,8 +60,6 @@ func sendModelProtocol(s network.Stream) error {
 	}
 	defer gzr.Close()
 
-	os.MkdirAll("weights", 0755)
-
 	modelpth, _ := io.ReadAll(gzr) // virheen käsittely olisi hyväksi
 
 	filepath := fmt.Sprintf("weights/model_%s", s.Conn().RemotePeer())
@@ -83,11 +80,7 @@ func sendModelProtocol(s network.Stream) error {
 ** The model training is also started during this protocol.
  */
 func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
-
 	log.Printf("New incoming connection from peer %s\n", s.Conn().RemotePeer())
-
-	// inform tracker that we are transmitting
-	helper.InformTrackerTransmission(h.ID().String(), "1")
 	gzr, err := gzip.NewReader(s)
 	if err != nil {
 		fmt.Println("Error creating gzip reader:", err)
@@ -101,6 +94,7 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 		return "", err
 	}
 
+	fmt.Println("NO MOI")
 	//fmt.Println(string(decompressedData))
 	zipFileWriteName := "train_set.zip"
 
@@ -109,16 +103,16 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 		fmt.Println("Error reading from gzip reader:", err)
 		return "", err
 	}
+
 	fmt.Println("ready with receiving data")
 
 	// unzip the training set
 	helper.UnzipFile(zipFileWriteName, "data")
 
-	//defer os.RemoveAll("data")
+	defer os.RemoveAll("data")
 	defer os.RemoveAll(zipFileWriteName)
 
-	done := make(chan bool)
-	helper.Spinner("Training the model", done)
+	fmt.Println("START MODEL TRAINING")
 	// logic to run the training on current computer
 	cmd := exec.Command("python3", "helper/trainer.py")
 
@@ -129,28 +123,19 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 		os.RemoveAll("data")
 		os.RemoveAll(zipFileWriteName)
 	}
-
-	done <- true
-
-	outputStr := string(output)
-	// Split the output into lines
-	lines := strings.Split(strings.TrimSpace(outputStr), "\n")
-	// Read the last line
-	lastLine := lines[len(lines)-1]
-
-	fmt.Println("Finished with training the model:", lastLine)
+	fmt.Println("Finished with training the model:", string(output))
 
 	// if no err in training return the model parameters to the requester
-	pth, err := os.Open("./data/model_state_dict.pth")
-
-	if err != nil {
-		log.Printf("Error opening the model state dict.", err)
-	}
-
 	s2, err := h.NewStream(context.Background(), s.Conn().RemotePeer(), mdlp)
 
 	if err != nil {
-		log.Printf("Can not open stream to peer", err)
+		log.Printf("Joo ei pygeny avaa uuttaa conenction")
+	}
+
+	pth, err := os.Open("./data/model_state_dict.pth")
+
+	if err != nil {
+		log.Printf("JOO EI VOINU AVATA MODEL PTHs")
 	}
 
 	buffer := make([]byte, 1024)
@@ -172,9 +157,11 @@ func fileTransferProtocol(s network.Stream, h host.Host) (string, error) {
 		}
 	}
 	fmt.Println("ready with sending data")
+	gzw.Close()
 	s2.Close()
+	// then return the saved weights or something???
 
-	helper.InformTrackerTransmission(h.ID().String(), "0")
+	//log.Printf("Message from %s: %s", connection.RemotePeer().String(), message)
 	return "ready", nil
 }
 
@@ -195,6 +182,8 @@ func main() {
 	if err != nil {
 		return
 	}
+
+	os.MkdirAll("weights", 0755)
 
 	go func() {
 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -237,6 +226,10 @@ func main() {
 
 }
 
+/* The function to start a peer, connect to the p2p network and inform tracker that client is online
+* and ready to accept connections.
+*/
+
 func startPeer(sourcePort string) (host.Host, error) {
 
 	// Set your own keypair
@@ -270,7 +263,10 @@ func startPeer(sourcePort string) (host.Host, error) {
 
 }
 
-// setup connection to peer
+/*
+** Function to connect to other peers in the network by ip, port and peerId.
+** This function also sends the datasplit that orchestrator has prepared for each client.
+*/
 func connectPeer(h host.Host, peerIp string, peerPort string, peerId string, data_split string) {
 	// build the addr string from pieces
 	peerAddr := fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", peerIp, peerPort, peerId)
@@ -278,6 +274,7 @@ func connectPeer(h host.Host, peerIp string, peerPort string, peerId string, dat
 	peerMA, err := multiaddr.NewMultiaddr(peerAddr)
 
 	if err != nil {
+		fmt.Println(err)
 		panic(err)
 	}
 	peerAddrInfo, err := peer.AddrInfoFromP2pAddr(peerMA)
@@ -299,7 +296,6 @@ func connectPeer(h host.Host, peerIp string, peerPort string, peerId string, dat
 
 	zip, _ := os.Open(data_split)
 	defer zip.Close()
-
 	defer os.RemoveAll(data_split)
 
 	buffer := make([]byte, 1024)
@@ -332,6 +328,12 @@ type PeerInfo struct {
 	PeerId string `json:"peer_id"`
 }
 
+/* Handler for connection between client and UI, before starting the learning process.
+** User Interface propagates training data and all peers that are to be connected to.
+** After handling the training data splits, creates a new thread to handle connection to
+** each peer.
+*/
+
 func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 	// Upgrade HTTP connection to WebSocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -360,7 +362,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 		helper.InformTrackerTransmission(h.ID().String(), "1")
 
 		// Split training data between peers.
-		n_peers := len(peersToConnect) + 1 // + 1 for self learning
+		n_peers := len(peersToConnect) + 4 // for self learning
+		os.MkdirAll("splits", 0755)
+		os.MkdirAll("weights", 0755)
 		helper.SplitTrainingDataAmongPeers(n_peers, "./all_training_data")
 
 		// 1 split for learning locally
@@ -398,7 +402,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 		averagedModelName := "averaged_model_state_dict.pth"
 		file, err := os.ReadFile(averagedModelName)
 
-		defer os.RemoveAll(averagedModelName)
 		if err != nil {
 			log.Println("Error reading file:", err)
 			return
@@ -410,8 +413,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, h host.Host) {
 		err = conn.WriteMessage(websocket.BinaryMessage, file)
 		if err != nil {
 			log.Println("Error sending file:", err)
-			return
 		}
+		os.RemoveAll("data")
+		os.RemoveAll("splits")
+		os.RemoveAll("weights")
+		os.RemoveAll(averagedModelName)
+		os.RemoveAll("train_set.zip")
 	}
 }
 

@@ -9,12 +9,8 @@ import torch.optim as optim
 import glob
 import os
 
-## Confirm the device
-#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#print(device)
+## Stick to using only cpu during training
 device = torch.device("cpu")
-
-## We already need to have normalized data that is passed to clients
 
 ## use resnet18 model with pretrained weights
 model = torchvision.models.resnet18(weights="ResNet18_Weights.DEFAULT")

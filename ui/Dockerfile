@@ -7,8 +7,10 @@ COPY package.json .
 
 RUN npm install
 
-COPY . .
+RUN npm install -g serve
+
+COPY ./build ./build
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["serve", "-s", "build"]
